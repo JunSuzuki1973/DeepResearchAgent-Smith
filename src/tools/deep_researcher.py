@@ -41,15 +41,38 @@ Extract up to 3 most important insights from this content. For each insight:
 
 GENERATE_FOLLOW_UPS_PROMPT = """
 Based on the insights discovered so far, generate follow-up research queries to explore gaps or related areas.
-These should help deepen our understanding of the topic.
+These should help deepen our understanding of the topic from multiple perspectives.
 
 Original query: {original_query}
 Current query: {current_query}
 Key insights so far:
 {insights}
 
-Generate up to 3 specific follow-up queries that would help address gaps in our current knowledge.
+Generate up to 3 specific follow-up queries that would help address gaps in current knowledge.
+Consider these research strategies:
+1. Keyword expansion and related terms
+2. Different perspectives (technical, business, social, historical)
+3. Comparative analysis with similar topics
+4. Recent developments and trends
+5. Expert opinions and case studies
+
 Each query should be concise and focused on a specific aspect of the research topic.
+"""
+
+MULTI_PERSPECTIVE_RESEARCH_PROMPT = """
+Analyze the research query and generate a comprehensive multi-perspective research plan.
+Consider various angles and approaches to ensure thorough coverage of the topic.
+
+Query: {query}
+
+Generate research strategies covering:
+1. Technical/Scientific perspective
+2. Business/Economic perspective  
+3. Social/Cultural perspective
+4. Historical/Evolutionary perspective
+5. Future trends and implications
+
+For each perspective, provide 2-3 specific search queries that would yield valuable insights.
 """
 
 # Constants for insight parsing
@@ -78,6 +101,13 @@ class ResearchInsight(BaseModel):
         source = self.source_title or self.source_url
         return f"{self.content} [Source: {source}]"
 
+class ResearchPerspective(BaseModel):
+    """Research perspective for multi-angle analysis."""
+    name: str = Field(description="Name of the research perspective")
+    queries: List[str] = Field(description="Search queries for this perspective")
+    insights: List[ResearchInsight] = Field(default_factory=list, description="Insights from this perspective")
+    completed: bool = Field(default=False, description="Whether this perspective has been explored")
+
 class ResearchContext(BaseModel):
     """Research context for tracking research progress."""
     query: str = Field(description="The original research query")
@@ -86,6 +116,8 @@ class ResearchContext(BaseModel):
     visited_urls: Set[str] = Field(default_factory=set, description="URLs visited during research")
     current_depth: int = Field(default=0, description="Current depth of research exploration", ge=0)
     max_depth: int = Field(default=2, description="Maximum depth of research to reach", ge=1)
+    perspectives: List[ResearchPerspective] = Field(default_factory=list, description="Multi-perspective research plan")
+    research_strategy: str = Field(default="standard", description="Current research strategy being used")
 
 class ResearchSummary(BaseModel):
     """Comprehensive summary of deep research results."""
@@ -95,6 +127,9 @@ class ResearchSummary(BaseModel):
     insights: List[ResearchInsight] = Field(default_factory=list, description="Key insights discovered")
     visited_urls: Set[str] = Field(default_factory=set, description="URLs visited during research")
     depth_reached: int = Field(default=0, description="Maximum depth of research reached", ge=0)
+    perspectives_explored: List[str] = Field(default_factory=list, description="Research perspectives explored")
+    total_queries_executed: int = Field(default=0, description="Total number of search queries executed")
+    research_quality_score: float = Field(default=0.0, description="Overall quality score of the research", ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def populate_output(self) -> "ResearchSummary":
@@ -226,6 +261,45 @@ class ExtractInsightsTool(AsyncTool):
         """Extract insights from content based on relevance to query."""
         return insights
 
+class MultiPerspectiveResearchTool(AsyncTool):
+    """Tool for generating multi-perspective research plans."""
+
+    name: str = "multi_perspective_research"
+    description: str = """Generates a comprehensive multi-perspective research plan covering various angles and approaches to ensure thorough coverage of the topic."""
+    parameters: dict = {
+        "type": "object",
+        "properties": {
+            "perspectives": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "Name of the research perspective",
+                        },
+                        "queries": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "2-3 specific search queries for this perspective",
+                            "minItems": 2,
+                            "maxItems": 3,
+                        },
+                    },
+                    "required": ["name", "queries"],
+                },
+                "description": "List of research perspectives with their corresponding queries",
+                "maxItems": 5,
+            }
+        },
+        "required": ["perspectives"],
+    }
+    output_type = "any"
+    
+    async def forward(self, perspectives: List[dict]) -> List[dict]:
+        """Generate multi-perspective research plan."""
+        return perspectives
+
 @TOOL.register_module(name="deep_researcher_tool", force=True)
 class DeepResearcherTool(AsyncTool):
     """Advanced research tool that explores a topic through iterative web searches."""
@@ -248,10 +322,12 @@ class DeepResearcherTool(AsyncTool):
     def __init__(self,
                  *args,
                  model_id: str = "gpt-4.1",
-                 maxt_depth: int = 2,
-                 max_insights: int = 20,
-                 time_limit_seconds: int = 120,
-                 max_follow_ups: int = 3,
+                 maxt_depth: int = 3,
+                 max_insights: int = 30,
+                 time_limit_seconds: int = 180,
+                 max_follow_ups: int = 5,
+                 enable_multi_perspective: bool = True,
+                 max_perspectives: int = 5,
                  **kwargs):
 
         super(DeepResearcherTool, self).__init__()
@@ -261,6 +337,8 @@ class DeepResearcherTool(AsyncTool):
         self.max_insights = max_insights
         self.time_limit_seconds = time_limit_seconds
         self.max_follow_ups = max_follow_ups
+        self.enable_multi_perspective = enable_multi_perspective
+        self.max_perspectives = max_perspectives
 
         self.model = model_manager.registed_models[self.model_id]
         self.web_searcher = WebSearcherTool()
@@ -277,14 +355,50 @@ class DeepResearcherTool(AsyncTool):
         # Initialize research context and set deadline
         context = ResearchContext(query=query, max_depth=max_depth)
         deadline = time.time() + self.time_limit_seconds
+        total_queries_executed = 0
 
         try:
-            optimized_query, filter_year = await self._generate_optimized_query(query)
-            await self._research_graph(context=context,
-                                       query=optimized_query,
-                                       filter_year=filter_year,
-                                       deadline=deadline
-                                       )
+            # Generate multi-perspective research plan if enabled
+            if self.enable_multi_perspective:
+                logger.info(f"DeepResearchTool: Generating multi-perspective research plan for: {query}")
+                perspectives = await self._generate_multi_perspective_plan(query)
+                context.perspectives = perspectives
+                context.research_strategy = "multi_perspective"
+                
+                # Execute multi-perspective research
+                for perspective in perspectives:
+                    if time.time() >= deadline:
+                        break
+                    
+                    logger.info(f"DeepResearchTool: Exploring {perspective.name} perspective")
+                    for perspective_query in perspective.queries:
+                        if time.time() >= deadline:
+                            break
+                        
+                        optimized_query, filter_year = await self._generate_optimized_query(perspective_query, None, context)
+                        total_queries_executed += 1
+                        
+                        # Execute research for this perspective query
+                        await self._research_graph(
+                            context=context,
+                            query=optimized_query,
+                            filter_year=filter_year,
+                            deadline=deadline,
+                            perspective_name=perspective.name
+                        )
+                    
+                    perspective.completed = True
+            else:
+                # Standard research approach
+                optimized_query, filter_year = await self._generate_optimized_query(query, None, context)
+                total_queries_executed += 1
+                await self._research_graph(
+                    context=context,
+                    query=optimized_query,
+                    filter_year=filter_year,
+                    deadline=deadline
+                )
+                
         except Exception as e:
             res_str = f"DeepResearchTool failed to complete the research cycle: {str(e)}"
             logger.error(res_str)
@@ -293,12 +407,18 @@ class DeepResearcherTool(AsyncTool):
                 error=res_str,
             )
 
+        # Calculate research quality score
+        quality_score = self._calculate_research_quality(context, total_queries_executed)
+        
         # Prepare final summary reference
         reference = ResearchSummary(
             query=query,
             insights=sorted(context.insights, key=lambda x: x.relevance_score, reverse=True)[:self.max_insights],
             visited_urls=context.visited_urls,
             depth_reached=context.current_depth,
+            perspectives_explored=[p.name for p in context.perspectives if p.completed],
+            total_queries_executed=total_queries_executed,
+            research_quality_score=quality_score,
         )
 
         output = await self._summary(query, reference.output)
@@ -310,46 +430,129 @@ class DeepResearcherTool(AsyncTool):
 
         return result
 
-    async def _generate_optimized_query(self, query: str) -> Tuple[str, Optional[int]]:
-        """Generate an optimized search query using LLM."""
+    async def _generate_optimized_query(
+        self, query: str, filter_year: Optional[int] = None, context: Optional[ResearchContext] = None
+    ) -> Tuple[str, Optional[int]]:
+        """Generate an optimized search query and extract filter year."""
         try:
-            prompt = OPTIMIZE_QUERY_INSTRUCTION.format(query=query)
-
+            # Enhanced prompt with context awareness
+            context_info = ""
+            if context and context.insights:
+                recent_insights = [i.content[:100] for i in context.insights[-3:]]  # Last 3 insights
+                context_info = f"\nPrevious research insights: {'; '.join(recent_insights)}"
+            
+            enhanced_prompt = f"""Optimize this search query for better web search results: {query}
+            
+Consider:
+            1. Adding specific technical terms or synonyms
+            2. Including relevant industry keywords
+            3. Avoiding overly broad terms
+            4. Adding quotation marks for exact phrases when needed
+            5. Including alternative spellings or variations{context_info}"""
+            
             messages = [
-                {"role": "user", "content": prompt}
+                {
+                    "role": "user",
+                    "content": enhanced_prompt
+                }
             ]
-            messages = [ChatMessage.from_dict(m) for m in messages]  # Convert to ChatMessage format
-            tools = [
-                OptimizedQueryTool()
-            ]
+            messages = [ChatMessage.from_dict(m) for m in messages]
+            tools = [OptimizedQueryTool()]
 
             response = await self.model(
-                messages = messages,
+                messages=messages,
                 tools_to_call_from=tools
             )
 
-            # Extract the query from the tool_call response
             if response and response.tool_calls and len(response.tool_calls) > 0:
                 arguments = json5.loads(response.tool_calls[0].function.arguments)
-                optimized_query = arguments.get("optimized_query", "")
-                filter_year = arguments.get("filter_year", None)
+                optimized_query = arguments.get("optimized_query", query)
+                extracted_year = arguments.get("filter_year")
+                
+                # Use provided filter_year if available, otherwise use extracted year
+                final_year = filter_year if filter_year is not None else extracted_year
+                
+                logger.info(f"DeepResearchTool: Optimized query: '{query}' -> '{optimized_query}'")
+                if final_year:
+                    logger.info(f"DeepResearchTool: Filter year: {final_year}")
+                
+                return optimized_query, final_year
             else:
-                res = f"DeepResearchTool failed to generate optimized query: {response}"
-                logger.warning(res)
-                return query, None
-
-            if not optimized_query:
-                res = f"DeepResearchTool generated an empty optimized query: {optimized_query}"
-                logger.warning(res)
-                return query, None
-
-            logger.info(f"DeepResearchTool generated optimized query: {optimized_query}")
-
-            return optimized_query, filter_year
+                logger.warning("DeepResearchTool: No tool calls in response, using original query")
+                return query, filter_year
         except Exception as e:
-            res = f"DeepResearchTool failed to generate optimized query: {str(e)}"
-            logger.error(res)
+            logger.error(f"DeepResearchTool: Failed to optimize query: {str(e)}")
             return query, None
+
+    async def _generate_multi_perspective_plan(self, query: str) -> List[ResearchPerspective]:
+        """Generate a multi-perspective research plan."""
+        try:
+            prompt = MULTI_PERSPECTIVE_RESEARCH_PROMPT.format(query=query)
+            
+            messages = [
+                {"role": "user", "content": prompt}
+            ]
+            messages = [ChatMessage.from_dict(m) for m in messages]
+            tools = [MultiPerspectiveResearchTool()]
+            
+            response = await self.model(
+                messages=messages,
+                tools_to_call_from=tools
+            )
+            
+            perspectives = []
+            if response and response.tool_calls and len(response.tool_calls) > 0:
+                arguments = json5.loads(response.tool_calls[0].function.arguments)
+                perspective_data = arguments.get("perspectives", [])
+                
+                for p_data in perspective_data[:self.max_perspectives]:
+                    perspective = ResearchPerspective(
+                        name=p_data.get("name", ""),
+                        queries=p_data.get("queries", [])
+                    )
+                    perspectives.append(perspective)
+            
+            logger.info(f"DeepResearchTool: Generated {len(perspectives)} research perspectives")
+            return perspectives
+            
+        except Exception as e:
+            logger.error(f"DeepResearchTool: Failed to generate multi-perspective plan: {str(e)}")
+            # Fallback to default perspectives
+            return self._get_default_perspectives(query)
+    
+    def _get_default_perspectives(self, query: str) -> List[ResearchPerspective]:
+        """Get default research perspectives as fallback."""
+        return [
+            ResearchPerspective(
+                name="Technical/Scientific",
+                queries=[f"{query} technical analysis", f"{query} scientific research"]
+            ),
+            ResearchPerspective(
+                name="Business/Economic",
+                queries=[f"{query} market analysis", f"{query} economic impact"]
+            ),
+            ResearchPerspective(
+                name="Social/Cultural",
+                queries=[f"{query} social implications", f"{query} cultural impact"]
+            )
+        ]
+    
+    def _calculate_research_quality(self, context: ResearchContext, total_queries: int) -> float:
+        """Calculate overall research quality score."""
+        try:
+            # Base score from insights quality
+            avg_relevance = sum(i.relevance_score for i in context.insights) / len(context.insights) if context.insights else 0.0
+            
+            # Bonus for depth and breadth
+            depth_bonus = min(context.current_depth / context.max_depth, 1.0) * 0.2
+            breadth_bonus = min(len(context.visited_urls) / 10, 1.0) * 0.2
+            perspective_bonus = len([p for p in context.perspectives if p.completed]) / max(len(context.perspectives), 1) * 0.2
+            
+            quality_score = min(avg_relevance + depth_bonus + breadth_bonus + perspective_bonus, 1.0)
+            return round(quality_score, 2)
+            
+        except Exception:
+            return 0.5  # Default score
 
     async def _research_graph(
         self,
@@ -357,13 +560,15 @@ class DeepResearcherTool(AsyncTool):
         query: str,
         filter_year: Optional[int] = None,
         deadline: Optional[float] = None,
+        perspective_name: Optional[str] = None,
     ) -> None:
         """Run a complete research cycle (search, analyze, generate follow-ups)."""
         # Check termination conditions
         if time.time() >= deadline or context.current_depth >= context.max_depth:
             return
 
-        logger.info(f"DeepResearchTool Research cycle at depth {context.current_depth + 1} - Query: {query}")
+        perspective_info = f" ({perspective_name} perspective)" if perspective_name else ""
+        logger.info(f"DeepResearchTool Research cycle at depth {context.current_depth + 1} - Query: {query}{perspective_info}")
 
         # 1. Web search
         search_results = await self._search_web(query, filter_year)
@@ -381,6 +586,13 @@ class DeepResearcherTool(AsyncTool):
 
         if not new_insights:
             return
+
+        # Associate insights with perspective if provided
+        if perspective_name:
+            for perspective in context.perspectives:
+                if perspective.name == perspective_name:
+                    perspective.insights.extend(new_insights)
+                    break
 
         # 3. Generate follow-up queries
         follow_up_queries = await self._generate_follow_ups(
@@ -406,6 +618,7 @@ class DeepResearcherTool(AsyncTool):
                     query=follow_up,
                     filter_year=filter_year,
                     deadline=deadline,
+                    perspective_name=perspective_name,
                 )
                 tasks.append(task)  # Add the task to the list
 

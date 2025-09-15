@@ -1,0 +1,96 @@
+[92m00:23:38 - logger:INFO[0m: run_oai_deep_research.py:192 - | Logger initialized at: C:\Users\PC\DeepResearchAgent\workdir\oai_deep_research-o3\log.txt
+[92m00:23:39 - logger:INFO[0m: run_oai_deep_research.py:193 - | Config:
+agent_config = dict(
+    description=
+    "A general agent that can perform deep research using openai's deep research capabilities.",
+    max_steps=20,
+    mcp_tools=[],
+    model_id='gpt-4.1',
+    name='oai_deep_research_agent',
+    provide_run_summary=True,
+    template_path='src/agent/general_agent/prompts/general_agent.yaml',
+    tools=[
+        'oai_deep_research_tool',
+        'deep_analyzer_tool',
+    ],
+    type='general_agent')
+auto_browser_use_tool_config = dict(
+    model_id='gpt-4.1', type='auto_browser_use_tool')
+concurrency = 4
+dataset = dict(
+    name='2023_all', path='data/GAIA', split='test', type='gaia_dataset')
+deep_analyzer_tool_config = dict(
+    analyzer_model_ids=[
+        'gemini-2.5-pro',
+    ],
+    summarizer_model_id='gemini-2.5-pro',
+    type='deep_analyzer_tool')
+deep_researcher_tool_config = dict(
+    max_depth=2,
+    max_follow_ups=3,
+    max_insights=20,
+    model_id='gpt-4.1',
+    time_limit_seconds=60,
+    type='deep_researcher_tool')
+exp_path = 'C:\\Users\\PC\\DeepResearchAgent\\workdir\\oai_deep_research-o3'
+file_reader_tool_config = dict(type='file_reader_tool')
+image_generator_tool_config = dict(
+    analyzer_model_id='o3',
+    generator_model_id='imagen',
+    type='image_generator_tool')
+log_path = 'C:\\Users\\PC\\DeepResearchAgent\\workdir\\oai_deep_research-o3\\log.txt'
+mcp_tools_config = dict(
+    mcpServers=dict(
+        LocalMCP=dict(
+            args=[
+                'C:\\Users\\PC\\DeepResearchAgent\\src/mcp/server.py',
+            ],
+            command='python',
+            env=dict(DEBUG='true'))))
+oai_deep_research_agent_config = dict(
+    description=
+    "A general agent that can perform deep research using openai's deep research capabilities.",
+    max_steps=20,
+    mcp_tools=[],
+    model_id='gpt-4.1',
+    name='oai_deep_research_agent',
+    provide_run_summary=True,
+    template_path='src/agent/general_agent/prompts/general_agent.yaml',
+    tools=[
+        'oai_deep_research_tool',
+        'deep_analyzer_tool',
+    ],
+    type='general_agent')
+oai_deep_research_tool_config = dict(
+    model_id='o3-deep-research', type='oai_deep_research_tool')
+save_path = 'C:\\Users\\PC\\DeepResearchAgent\\workdir\\oai_deep_research-o3\\dra.jsonl'
+tag = 'oai_deep_research-o3'
+use_hierarchical_agent = False
+use_local_proxy = True
+video_generator_tool_config = dict(
+    analyzer_model_id='o3',
+    fetch_model_id='veo3-fetch',
+    predict_model_id='veo3-predict',
+    type='video_generator_tool')
+web_fetcher_tool_config = dict(type='web_fetcher_tool')
+web_searcher_tool_config = dict(
+    country='us',
+    engine='Firecrawl',
+    fetch_content=True,
+    lang='en',
+    max_length=4096,
+    max_retries=3,
+    num_results=5,
+    retry_delay=10,
+    type='web_searcher_tool')
+workdir = 'workdir'
+
+[92m00:23:39 - logger:INFO[0m: models.py:57 - Using local proxy for OpenAI models
+[92m00:23:39 - logger:WARNING[0m: models.py:50 - Local API base SKYWORK_SHUBIAOBIAO_API_BASE is not set, using remote API base OPENAI_API_BASE
+[92m00:23:39 - logger:INFO[0m: models.py:230 - Using local proxy for Anthropic models
+[92m00:23:39 - logger:INFO[0m: models.py:313 - Using local proxy for Google models
+[92m00:23:39 - logger:INFO[0m: models.py:444 - Using local proxy for LangChain models
+[92m00:23:40 - logger:INFO[0m: models.py:537 - Using local proxy for DeepSeek models
+[92m00:23:40 - logger:WARNING[0m: models.py:50 - Local API base SKYWORK_DEEPSEEK_API_BASE is not set, using remote API base SKYWORK_API_BASE
+[92m00:23:40 - logger:WARNING[0m: models.py:50 - Local API base SKYWORK_DEEPSEEK_API_BASE is not set, using remote API base SKYWORK_API_BASE
+[92m00:23:40 - logger:INFO[0m: run_oai_deep_research.py:197 - | Registed models: gpt-4o, gpt-4.1, o1, o3, gpt-4o-search-preview, whisper, o3-deep-research, gpt-5, claude37-sonnet, claude-3.7-sonnet-thinking, claude-4-sonnet, gemini-2.5-pro, imagen, veo3-predict, veo3-fetch, qwen2.5-7b-instruct, qwen2.5-14b-instruct, qwen2.5-32b-instruct, langchain-gpt-4o, langchain-gpt-4.1, langchain-o3, Qwen, Qwen-VL, deepseek-chat, deepseek-reasoner

@@ -41,6 +41,7 @@ class LiteLLMModel(ApiModel):
         custom_role_conversions: dict[str, str] | None = None,
         flatten_messages_as_text: bool | None = None,
         http_client=None,
+        client=None,
         **kwargs,
     ):
         if not model_id:
@@ -61,6 +62,7 @@ class LiteLLMModel(ApiModel):
             else model_id.startswith(("ollama", "groq", "cerebras"))
         )
         self.http_client = http_client
+        self.client = client or self.create_client()
 
         self.message_manager = MessageManager(model_id=model_id)
 

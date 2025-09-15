@@ -5,7 +5,7 @@ from .tools import (
     DeepAnalyzerTool,
     DeepResearcherTool,
     PythonInterpreterTool,
-    AutoBrowserUseTool,
+    # AutoBrowserUseTool,  # Temporarily disabled
     PlanningTool,
     make_tool_instance,
 )
